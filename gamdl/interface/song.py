@@ -39,6 +39,8 @@ class AppleMusicSongInterface:
         use_album_date: bool = False,
         skip_stream_info: bool = False,
         ask_codec_function: Callable[[list[dict]], dict | None] | None = None,
+        max_sample_rate: int | None = None,
+        max_bit_depth: int | None = None,
     ):
         self.base = base
         self.synced_lyrics_format = synced_lyrics_format
@@ -46,6 +48,8 @@ class AppleMusicSongInterface:
         self.use_album_date = use_album_date
         self.skip_stream_info = skip_stream_info
         self.ask_codec_function = ask_codec_function
+        self.max_sample_rate = max_sample_rate
+        self.max_bit_depth = max_bit_depth
 
     async def get_lyrics(
         self,
@@ -484,6 +488,41 @@ class AppleMusicSongInterface:
             "com.apple.hls.audioAssetMetadata",
         )
 
+    def _parse_audio_group_quality(
+        self, audio_group: str
+    ) -> tuple[int | None, int | None]:
+        """Parse sample rate and bit depth from an audio group string.
+
+        Examples:
+            'audio-alac-192000-24' -> (192000, 24)
+            'audio-alac-44100-16'  -> (44100, 16)
+            'audio-stereo-256'     -> (None, None)
+        """
+        parts = audio_group.split("-")
+        if len(parts) >= 4:
+            try:
+                sample_rate = int(parts[-2])
+                bit_depth = int(parts[-1])
+                return sample_rate, bit_depth
+            except (ValueError, IndexError):
+                pass
+        return None, None
+
+    def _meets_quality_limit(self, audio_group: str) -> bool:
+        """Check if the audio group meets max sample rate and bit depth limits."""
+        if self.max_sample_rate is None and self.max_bit_depth is None:
+            return True
+        sample_rate, bit_depth = self._parse_audio_group_quality(audio_group)
+        if sample_rate is None and bit_depth is None:
+            return True
+        if self.max_sample_rate is not None and sample_rate is not None:
+            if sample_rate > self.max_sample_rate:
+                return False
+        if self.max_bit_depth is not None and bit_depth is not None:
+            if bit_depth > self.max_bit_depth:
+                return False
+        return True
+
     def _get_playlist_from_codec_enhanced(
         self, m3u8_data: dict, codec: SongCodec
     ) -> dict | None:
@@ -497,6 +536,15 @@ class AppleMusicSongInterface:
 
         if not matching_playlists:
             return None
+
+        if self.max_sample_rate is not None or self.max_bit_depth is not None:
+            matching_playlists = [
+                p
+                for p in matching_playlists
+                if self._meets_quality_limit(p["stream_info"]["audio"])
+            ]
+            if not matching_playlists:
+                return None
 
         return max(
             matching_playlists,

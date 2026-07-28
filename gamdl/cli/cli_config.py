@@ -262,6 +262,24 @@ class CliConfig:
             is_flag=True,
         ),
     ]
+    max_sample_rate: Annotated[
+        int | None,
+        option(
+            "--max-sample-rate",
+            help="Max sample rate in Hz for songs (e.g., 44100, 48000, 96000, 192000). Only applies to non-web codecs like ALAC.",
+            default=None,
+            type=int,
+        ),
+    ]
+    max_bit_depth: Annotated[
+        int | None,
+        option(
+            "--max-bit-depth",
+            help="Max bit depth for songs (e.g., 16, 24). Only applies to non-web codecs like ALAC.",
+            default=None,
+            type=int,
+        ),
+    ]
     # Music Video Interface Options
     music_video_resolution: Annotated[
         MusicVideoResolution,

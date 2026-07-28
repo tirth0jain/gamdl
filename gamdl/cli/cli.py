@@ -149,6 +149,8 @@ async def main(config: CliConfig):
         use_album_date=config.use_album_date,
         skip_stream_info=config.synced_lyrics_only,
         ask_codec_function=interactive_prompts.ask_song_codec,
+        max_sample_rate=config.max_sample_rate,
+        max_bit_depth=config.max_bit_depth,
     )
     music_video_interface = AppleMusicMusicVideoInterface(
         base=base_interface,
