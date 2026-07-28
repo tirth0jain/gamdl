@@ -152,6 +152,8 @@ The file is created automatically on first run. Command-line arguments override 
 | `--synced-lyrics-format`        | Synced lyrics format                                              | `lrc`                         |
 | `--song-codec-priority`         | Comma-separated codec priority                                    | `aac-web`                     |
 | `--use-album-date`              | Use album release date for songs                                  | `false`                       |
+| `--max-sample-rate`             | Max sample rate in Hz (44100, 48000, 96000, 192000)               | -                             |
+| `--max-bit-depth`               | Max bit depth (16, 24)                                            | -                             |
 | `--no-synced-lyrics`            | Don't download synced lyrics                                      | `false`                       |
 | `--synced-lyrics-only`          | Download only synced lyrics                                       | `false`                       |
 | **Music Video Options**         |                                                                   |                               |
