@@ -253,7 +253,7 @@ Use ISO 639-1 language codes (e.g., `en-US`, `es-ES`, `ja-JP`, `pt-BR`). Don't a
 - `none` - No transcoding (default)
 - `flac` - Transcode songs to lossless FLAC on the fly
 
-When enabled, the decrypted/muxed file is transcoded in the temp folder before tagging and moving to the final path, so no extra disk space or manual post-processing is needed. It requires FFmpeg (see `--ffmpeg-path`) and is typically used together with `--song-codec-priority alac` to produce device-friendly lossless FLAC files with no quality loss. Requires FFmpeg to be available (set its location with `--ffmpeg-path` if not in your PATH).
+When enabled, the decrypted/muxed file is transcoded in the temp folder before tagging and moving to the final path, so no extra disk space or manual post-processing is needed. It requires FFmpeg (see `--ffmpeg-path`) and is typically used together with `--song-codec-priority alac` to produce device-friendly lossless FLAC files with no quality loss. Transcoding only applies to lossless (ALAC) sources — tracks that fall back to a lossy codec (e.g. AAC-only tracks when using `alac,aac-web`) are left untouched as `.m4a`, so they never get inflated for no benefit.
 
 ### Synced Lyrics Format
 

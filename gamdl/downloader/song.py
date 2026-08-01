@@ -3,7 +3,7 @@ from pathlib import Path
 import structlog
 
 from ..interface.enums import CoverFormat
-from ..interface.types import AppleMusicMedia, DecryptionKeyAv
+from ..interface.types import AppleMusicMedia, DecryptionKeyAv, StreamInfoAv
 from ..utils import async_subprocess
 from .ammuxer import decrypt_and_mux_hex, decrypt_and_mux_wrapper
 from .base import AppleMusicBaseDownloader
@@ -38,7 +38,7 @@ class AppleMusicSongDownloader:
             media.tags,
             (
                 "." + self.transcode_codec.value
-                if self.transcode_codec != TranscodeCodec.NONE
+                if self._should_transcode(media.stream_info)
                 else ".m4a"
             ),
             media.playlist_tags,
@@ -164,6 +164,13 @@ class AppleMusicSongDownloader:
 
         return cover_path
 
+    def _should_transcode(self, stream_info: StreamInfoAv | None) -> bool:
+        if self.transcode_codec == TranscodeCodec.NONE or not stream_info:
+            return False
+
+        audio_codec = stream_info.audio_track.codec
+        return bool(audio_codec) and audio_codec.startswith("alac")
+
     async def _transcode(
         self,
         input_path: str,
@@ -226,7 +233,7 @@ class AppleMusicSongDownloader:
                 download_item.media.stream_info.audio_track.use_single_content_key,
             )
 
-        if self.transcode_codec != TranscodeCodec.NONE:
+        if self._should_transcode(download_item.media.stream_info):
             if not self.base.full_ffmpeg_path:
                 raise GamdlDownloaderDependencyNotFoundError("FFmpeg")
 
@@ -241,6 +248,15 @@ class AppleMusicSongDownloader:
                 transcoded_path,
             )
             download_item.staged_path = transcoded_path
+        elif self.transcode_codec != TranscodeCodec.NONE:
+            logger.debug(
+                "skip_transcode_non_lossless_source",
+                audio_codec=(
+                    download_item.media.stream_info.audio_track.codec
+                    if download_item.media.stream_info
+                    else None
+                ),
+            )
 
         cover_bytes = (
             await self.base.interface.base.get_cover_bytes(
@@ -249,7 +265,7 @@ class AppleMusicSongDownloader:
             if self.base.interface.base.cover_format != CoverFormat.RAW
             else None
         )
-        if self.transcode_codec == TranscodeCodec.FLAC:
+        if self._should_transcode(download_item.media.stream_info):
             await self.base.apply_flac_tags(
                 download_item.staged_path,
                 download_item.media.tags,
