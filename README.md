@@ -154,6 +154,7 @@ The file is created automatically on first run. Command-line arguments override 
 | `--use-album-date`              | Use album release date for songs                                  | `false`                       |
 | `--max-sample-rate`             | Max sample rate in Hz (44100, 48000, 96000, 192000)               | -                             |
 | `--max-bit-depth`               | Max bit depth (16, 24)                                            | -                             |
+| `--song-transcode-codec`        | On-the-fly transcode codec for songs (`none`, `flac`)             | `none`                       |
 | `--no-synced-lyrics`            | Don't download synced lyrics                                      | `false`                       |
 | `--synced-lyrics-only`          | Download only synced lyrics                                       | `false`                       |
 | **Music Video Options**         |                                                                   |                               |
@@ -246,6 +247,13 @@ Use ISO 639-1 language codes (e.g., `en-US`, `es-ES`, `ja-JP`, `pt-BR`). Don't a
 - `ac3` - AC3 640kbps
 - `alac` - ALAC up to 24-bit/192kHz
 - `ask` - Interactive codec selection
+
+### Song Transcode Codec
+
+- `none` - No transcoding (default)
+- `flac` - Transcode songs to lossless FLAC on the fly
+
+When enabled, the decrypted/muxed file is transcoded in the temp folder before tagging and moving to the final path, so no extra disk space or manual post-processing is needed. It requires FFmpeg (see `--ffmpeg-path`) and is typically used together with `--song-codec-priority alac` to produce device-friendly lossless FLAC files with no quality loss. Requires FFmpeg to be available (set its location with `--ffmpeg-path` if not in your PATH).
 
 ### Synced Lyrics Format
 

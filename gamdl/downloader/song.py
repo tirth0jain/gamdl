@@ -4,8 +4,11 @@ import structlog
 
 from ..interface.enums import CoverFormat
 from ..interface.types import AppleMusicMedia, DecryptionKeyAv
+from ..utils import async_subprocess
 from .ammuxer import decrypt_and_mux_hex, decrypt_and_mux_wrapper
 from .base import AppleMusicBaseDownloader
+from .enums import TranscodeCodec
+from .exceptions import GamdlDownloaderDependencyNotFoundError
 from .types import DownloadItem
 
 logger = structlog.get_logger(__name__)
@@ -15,8 +18,10 @@ class AppleMusicSongDownloader:
     def __init__(
         self,
         base: AppleMusicBaseDownloader,
+        transcode_codec: TranscodeCodec = TranscodeCodec.NONE,
     ):
         self.base = base
+        self.transcode_codec = transcode_codec
 
     async def get_download_item(self, media: AppleMusicMedia) -> DownloadItem:
         download_item = DownloadItem(media)
@@ -31,7 +36,11 @@ class AppleMusicSongDownloader:
 
         download_item.final_path = self.base.get_final_path(
             media.tags,
-            ".m4a",
+            (
+                "." + self.transcode_codec.value
+                if self.transcode_codec != TranscodeCodec.NONE
+                else ".m4a"
+            ),
             media.playlist_tags,
         )
 
@@ -155,6 +164,37 @@ class AppleMusicSongDownloader:
 
         return cover_path
 
+    async def _transcode(
+        self,
+        input_path: str,
+        output_path: str,
+    ) -> None:
+        log = logger.bind(
+            action="transcode_song",
+            input_path=input_path,
+            output_path=output_path,
+            transcode_codec=self.transcode_codec.value,
+        )
+
+        await async_subprocess(
+            self.base.full_ffmpeg_path,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            input_path,
+            "-vn",
+            "-c:a",
+            self.transcode_codec.value,
+            "-compression_level",
+            "8",
+            output_path,
+            silent=self.base.silent,
+        )
+
+        log.debug("success")
+
     async def download(
         self,
         download_item: DownloadItem,
@@ -186,6 +226,22 @@ class AppleMusicSongDownloader:
                 download_item.media.stream_info.audio_track.use_single_content_key,
             )
 
+        if self.transcode_codec != TranscodeCodec.NONE:
+            if not self.base.full_ffmpeg_path:
+                raise GamdlDownloaderDependencyNotFoundError("FFmpeg")
+
+            transcoded_path = self.base.get_temp_path(
+                download_item.media.media_metadata["id"],
+                download_item.uuid_,
+                "transcoded",
+                "." + self.transcode_codec.value,
+            )
+            await self._transcode(
+                download_item.staged_path,
+                transcoded_path,
+            )
+            download_item.staged_path = transcoded_path
+
         cover_bytes = (
             await self.base.interface.base.get_cover_bytes(
                 download_item.media.cover.url
@@ -193,8 +249,15 @@ class AppleMusicSongDownloader:
             if self.base.interface.base.cover_format != CoverFormat.RAW
             else None
         )
-        await self.base.apply_tags(
-            download_item.staged_path,
-            download_item.media.tags,
-            cover_bytes,
-        )
+        if self.transcode_codec == TranscodeCodec.FLAC:
+            await self.base.apply_flac_tags(
+                download_item.staged_path,
+                download_item.media.tags,
+                cover_bytes,
+            )
+        else:
+            await self.base.apply_tags(
+                download_item.staged_path,
+                download_item.media.tags,
+                cover_bytes,
+            )

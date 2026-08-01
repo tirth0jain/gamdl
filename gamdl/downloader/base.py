@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 
 import structlog
+from mutagen.flac import FLAC, Picture
 from mutagen.mp4 import MP4, MP4Cover
 from yt_dlp import YoutubeDL
 from yt_dlp.downloader.hls import HlsFD
@@ -382,6 +383,62 @@ class AppleMusicBaseDownloader:
             mp4.update(tags)
 
         mp4.save()
+
+    async def apply_flac_tags(
+        self,
+        media_path: str,
+        tags: MediaTags,
+        cover_bytes: bytes | None,
+    ):
+        log = logger.bind(action="apply_flac_tags", media_path=media_path)
+
+        exclude_tags = self.exclude_tags or []
+
+        filtered_tags = MediaTags(
+            **{
+                k: v
+                for k, v in tags.__dict__.items()
+                if v is not None and k not in exclude_tags
+            }
+        )
+        vorbis_tags = filtered_tags.as_vorbis_tags(self.date_tag_template)
+
+        skip_tagging = "all" in exclude_tags
+
+        await asyncio.to_thread(
+            self._apply_flac_tags,
+            media_path,
+            vorbis_tags,
+            cover_bytes,
+            skip_tagging,
+        )
+
+        log.debug("success")
+
+    def _apply_flac_tags(
+        self,
+        media_path: str,
+        tags: dict,
+        cover_bytes: bytes | None,
+        skip_tagging: bool,
+    ):
+        flac = FLAC(media_path)
+
+        if not skip_tagging:
+            if cover_bytes is not None:
+                picture = Picture()
+                picture.type = 3  # front cover
+                picture.mime = (
+                    "image/jpeg"
+                    if self.interface.base.cover_format == CoverFormat.JPG
+                    else "image/png"
+                )
+                picture.desc = "cover"
+                picture.data = cover_bytes
+                flac.add_picture(picture)
+            flac.update(tags)
+
+        flac.save()
 
     async def _apply_cover(
         self,

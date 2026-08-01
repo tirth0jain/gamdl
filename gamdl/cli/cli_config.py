@@ -11,9 +11,11 @@ from ..downloader import (
     AppleMusicBaseDownloader,
     AppleMusicDownloader,
     AppleMusicMusicVideoDownloader,
+    AppleMusicSongDownloader,
     DownloadMode,
     RemuxFormatMusicVideo,
     RemuxMode,
+    TranscodeCodec,
 )
 from ..interface import (
     AppleMusicBaseInterface,
@@ -44,6 +46,7 @@ uploaded_video_interface_sig = inspect.signature(
 interface_create_sig = inspect.signature(AppleMusicInterface)
 
 base_downloader_sig = inspect.signature(AppleMusicBaseDownloader.__init__)
+song_downloader_sig = inspect.signature(AppleMusicSongDownloader.__init__)
 music_video_downloader_sig = inspect.signature(AppleMusicMusicVideoDownloader.__init__)
 downloader_sig = inspect.signature(AppleMusicDownloader.__init__)
 
@@ -278,6 +281,15 @@ class CliConfig:
             help="Max bit depth for songs (e.g., 16, 24). Only applies to non-web codecs like ALAC.",
             default=None,
             type=int,
+        ),
+    ]
+    song_transcode_codec: Annotated[
+        TranscodeCodec,
+        option(
+            "--song-transcode-codec",
+            help="Transcode downloaded songs on the fly (e.g., flac for lossless FLAC output, typically used with the alac codec)",
+            default=song_downloader_sig.parameters["transcode_codec"].default,
+            type=TranscodeCodec,
         ),
     ]
     # Music Video Interface Options

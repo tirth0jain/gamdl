@@ -196,6 +196,7 @@ async def main(config: CliConfig):
 
     song_downloader = AppleMusicSongDownloader(
         base=base_downloader,
+        transcode_codec=config.song_transcode_codec,
     )
     music_video_downloader = AppleMusicMusicVideoDownloader(
         base=base_downloader,

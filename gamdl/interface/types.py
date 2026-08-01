@@ -104,6 +104,73 @@ class MediaTags:
             if v is not None
         }
 
+    def as_vorbis_tags(self, date_format: str = None) -> dict:
+        if isinstance(self.date, datetime.date):
+            if date_format is None:
+                date_vorbis = self.date.isoformat()
+            else:
+                date_vorbis = self.date.strftime(date_format)
+        elif isinstance(self.date, str):
+            date_vorbis = self.date
+        else:
+            date_vorbis = None
+
+        vorbis_tags = {
+            "album": self.album,
+            "albumartist": self.album_artist,
+            "albumid": self.album_id,
+            "albumsort": self.album_sort,
+            "artist": self.artist,
+            "artistid": self.artist_id,
+            "artistsort": self.artist_sort,
+            "comment": self.comment,
+            "compilation": (
+                "1" if self.compilation else "0"
+                if self.compilation is not None else None
+            ),
+            "composer": self.composer,
+            "composerid": self.composer_id,
+            "composersort": self.composer_sort,
+            "copyright": self.copyright,
+            "date": date_vorbis,
+            "discnumber": (
+                str(self.disc) if self.disc is not None else None
+            ),
+            "disctotal": (
+                str(self.disc_total) if self.disc_total is not None else None
+            ),
+            "gapless": (
+                "1" if self.gapless else "0"
+                if self.gapless is not None else None
+            ),
+            "genre": self.genre,
+            "genreid": self.genre_id,
+            "lyrics": self.lyrics,
+            "media_type": (
+                str(self.media_type) if self.media_type is not None else None
+            ),
+            "rating": (
+                str(int(self.rating)) if self.rating is not None else None
+            ),
+            "storefront": self.storefront,
+            "title": self.title,
+            "titleid": self.title_id,
+            "titlesort": self.title_sort,
+            "tracknumber": (
+                str(self.track) if self.track is not None else None
+            ),
+            "tracktotal": (
+                str(self.track_total) if self.track_total is not None else None
+            ),
+            "xid": self.xid,
+        }
+
+        return {
+            k: (str(v) if not isinstance(v, str) else v)
+            for k, v in vorbis_tags.items()
+            if v is not None
+        }
+
 
 @dataclass
 class PlaylistTags:

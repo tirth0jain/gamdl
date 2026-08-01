@@ -6,6 +6,11 @@ class DownloadMode(Enum):
     NM3U8DLRE = "nm3u8dlre"
 
 
+class TranscodeCodec(Enum):
+    NONE = "none"
+    FLAC = "flac"
+
+
 class RemuxMode(Enum):
     FFMPEG = "ffmpeg"
     MP4BOX = "mp4box"
