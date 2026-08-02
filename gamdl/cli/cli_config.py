@@ -198,6 +198,14 @@ class CliConfig:
             default=api_create_sig.parameters["language"].default,
         ),
     ]
+    storefront: Annotated[
+        str | None,
+        option(
+            "--storefront",
+            help="Catalog storefront (e.g. us, in) to fetch metadata from — overrides the account's storefront",
+            default=api_create_sig.parameters["storefront"].default,
+        ),
+    ]
     # Base Interface specific options
     cover_format: Annotated[
         CoverFormat,

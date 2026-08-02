@@ -95,6 +95,7 @@ async def main(config: CliConfig):
             apple_music_api = await AppleMusicApi.create_from_wrapper(
                 wrapper_api=wrapper_api,
                 language=config.language,
+                storefront=config.storefront,
             )
         except Exception as e:
             logger.exception(f"Error: {e}")
@@ -104,6 +105,7 @@ async def main(config: CliConfig):
         apple_music_api = await AppleMusicApi.create_from_netscape_cookies(
             cookies_path=cookies_path,
             language=config.language,
+            storefront=config.storefront,
         )
         wrapper_api = None
 

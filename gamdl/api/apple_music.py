@@ -163,7 +163,7 @@ class AppleMusicApi:
     @classmethod
     async def create(
         cls,
-        storefront: str | None = "us",
+        storefront: str | None = None,
         language: str = "en-US",
         token: str | None = None,
         media_user_token: str | None = None,
@@ -174,15 +174,16 @@ class AppleMusicApi:
             if media_user_token
             else None
         )
-        storefront = (
-            account_info["meta"]["subscription"]["storefront"]
-            if account_info
-            else storefront
-        )
+        # An explicitly-passed storefront (CLI --storefront / config.ini)
+        # overrides the account's subscription storefront. Otherwise fall back
+        # to the account storefront, then to the US catalog (the default for
+        # anonymous downloads). This fixes 404 "Resource Not Found" for tracks
+        # that exist in the US catalog but not in the account's regional
+        # storefront.
+        if not storefront and account_info:
+            storefront = account_info["meta"]["subscription"]["storefront"]
         if not storefront:
-            raise ValueError(
-                "Storefront must be provided if it cannot be determined from account info"
-            )
+            storefront = "us"
 
         client = httpx.AsyncClient(
             headers={
