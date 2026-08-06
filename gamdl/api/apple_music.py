@@ -1,4 +1,10 @@
+import asyncio
+import hashlib
+import json
+import os
 import re
+import tempfile
+import time
 from http.cookiejar import MozillaCookieJar
 from urllib.parse import parse_qs, urlparse
 
@@ -131,34 +137,175 @@ class AppleMusicApi:
         token: str,
         media_user_token: str,
         meta: str = "subscription",
+        max_retries: int = 3,
+        retry_backoff_base: float = 1.0,
     ) -> dict:
         log = logger.bind(action="get_account_info", meta=meta)
 
-        response = None
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    APPLE_MUSIC_AMP_API_URL + APPLE_MUSIC_ACCOUNT_INFO_API_URI,
-                    params={
-                        "meta": meta,
-                    },
-                    headers={
-                        "authorization": f"Bearer {token}",
-                        "origin": APPLE_MUSIC_HOMEPAGE_URL,
-                        "cookie": f"media-user-token={media_user_token}",
-                    },
-                )
-                response.raise_for_status()
-                account_info = response.json()
-            except httpx.HTTPError:
-                raise GamdlApiResponseError(
-                    "Error fetching account info",
-                    status_code=response.status_code if response is not None else None,
-                )
+        for attempt in range(max_retries + 1):
+            response = None
+            async with httpx.AsyncClient() as client:
+                try:
+                    response = await client.get(
+                        APPLE_MUSIC_AMP_API_URL + APPLE_MUSIC_ACCOUNT_INFO_API_URI,
+                        params={
+                            "meta": meta,
+                        },
+                        headers={
+                            "authorization": f"Bearer {token}",
+                            "origin": APPLE_MUSIC_HOMEPAGE_URL,
+                            "cookie": f"media-user-token={media_user_token}",
+                        },
+                    )
+                    response.raise_for_status()
+                    account_info = response.json()
+                    log.debug("success", account_info=account_info)
+                    return account_info
+                except httpx.HTTPStatusError as e:
+                    status_code = e.response.status_code
+                    if status_code == 429 or status_code >= 500:
+                        if attempt >= max_retries:
+                            raise GamdlApiResponseError(
+                                "Error fetching account info",
+                                status_code=status_code,
+                            ) from e
+                        retry_after = e.response.headers.get("Retry-After")
+                        if retry_after:
+                            try:
+                                delay = float(retry_after)
+                            except ValueError:
+                                delay = retry_backoff_base * (2**attempt)
+                        else:
+                            delay = retry_backoff_base * (2**attempt)
+                        log.warning(
+                            "retry_account_info",
+                            status_code=status_code,
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            delay=delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise GamdlApiResponseError(
+                        "Error fetching account info",
+                        status_code=status_code,
+                    ) from e
+                except httpx.HTTPError:
+                    raise GamdlApiResponseError(
+                        "Error fetching account info",
+                        status_code=(
+                            response.status_code if response is not None else None
+                        ),
+                    )
 
-        log.debug("success", account_info=account_info)
+        raise GamdlApiResponseError(
+            "Error fetching account info",
+            status_code=None,
+        )
 
-        return account_info
+    _ACCOUNT_INFO_CACHE_TTL_SECONDS = 600
+
+    @classmethod
+    def _get_account_info_cache_paths(
+        cls,
+        token: str,
+        media_user_token: str,
+    ) -> tuple[str, str]:
+        key = hashlib.sha256(
+            f"{token}:{media_user_token}".encode("utf-8")
+        ).hexdigest()[:16]
+        cache_dir = os.path.join(tempfile.gettempdir(), "gamdl")
+        os.makedirs(cache_dir, exist_ok=True)
+        return (
+            os.path.join(cache_dir, f"account_info_{key}.json"),
+            os.path.join(cache_dir, f"account_info_{key}.lock"),
+        )
+
+    @classmethod
+    def _load_account_info_cache(
+        cls,
+        cache_path: str,
+        meta: str,
+    ) -> dict | None:
+        try:
+            if not os.path.exists(cache_path):
+                return None
+            if (
+                time.time() - os.path.getmtime(cache_path)
+                >= cls._ACCOUNT_INFO_CACHE_TTL_SECONDS
+            ):
+                return None
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            if cached.get("meta") != meta:
+                return None
+            return cached["account_info"]
+        except (OSError, ValueError, KeyError):
+            return None
+
+    @classmethod
+    def _write_account_info_cache(
+        cls,
+        cache_path: str,
+        meta: str,
+        account_info: dict,
+    ) -> None:
+        try:
+            tmp_path = cache_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"meta": meta, "account_info": account_info}, f)
+            os.replace(tmp_path, cache_path)
+        except OSError:
+            logger.warning(
+                "account_info_cache_write_failed",
+                cache_path=cache_path,
+            )
+
+    @classmethod
+    async def _get_account_info_cached(
+        cls,
+        token: str,
+        media_user_token: str,
+        meta: str = "subscription",
+    ) -> dict:
+        cache_path, lock_path = cls._get_account_info_cache_paths(
+            token,
+            media_user_token,
+        )
+
+        cached = cls._load_account_info_cache(cache_path, meta)
+        if cached is not None:
+            logger.debug("account_info_cache_hit")
+            return cached
+
+        # Serialize concurrent fetches: multiple gamdl processes rip at once
+        # (one per track), so without a lock they'd all hammer Apple's
+        # account-info endpoint simultaneously and trip its 429.
+        lock_fd = None
+        try:
+            import fcntl
+
+            lock_fd = open(lock_path, "w")
+            await asyncio.to_thread(fcntl.flock, lock_fd, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            lock_fd = None
+
+        try:
+            cached = cls._load_account_info_cache(cache_path, meta)
+            if cached is not None:
+                logger.debug("account_info_cache_hit_after_lock")
+                return cached
+
+            account_info = await cls.get_account_info(token, media_user_token, meta)
+            cls._write_account_info_cache(cache_path, meta, account_info)
+            return account_info
+        finally:
+            if lock_fd is not None:
+                try:
+                    await asyncio.to_thread(fcntl.flock, lock_fd, fcntl.LOCK_UN)
+                except (OSError, ValueError):
+                    pass
+                lock_fd.close()
 
     @classmethod
     async def create(
@@ -169,11 +316,27 @@ class AppleMusicApi:
         media_user_token: str | None = None,
     ) -> "AppleMusicApi":
         token = token or await cls.get_token()
-        account_info = (
-            await cls.get_account_info(token, media_user_token)
-            if media_user_token
-            else None
-        )
+        account_info = None
+        if media_user_token:
+            try:
+                account_info = await cls._get_account_info_cached(
+                    token,
+                    media_user_token,
+                )
+            except GamdlApiResponseError as e:
+                if storefront:
+                    # The caller explicitly knows which catalog storefront to
+                    # use, so a transient account-info failure (Apple 429s
+                    # under load) must not kill the whole rip.
+                    logger.warning(
+                        "account_info_unavailable",
+                        reason=str(e),
+                        storefront=storefront,
+                        error="continuing_with_explicit_storefront",
+                    )
+                    account_info = None
+                else:
+                    raise
         # An explicitly-passed storefront (CLI --storefront / config.ini)
         # overrides the account's subscription storefront. Otherwise fall back
         # to the account storefront, then to the US catalog (the default for
@@ -190,10 +353,14 @@ class AppleMusicApi:
                 "authorization": f"Bearer {token}",
                 "origin": APPLE_MUSIC_HOMEPAGE_URL,
             },
+            # Bounded retries: each rip has a tight timeout budget (the addon
+            # SIGKILLs gamdl after ~60s), so the previous 6-retry/63s backoff
+            # chain could burn the entire budget on sustained 429s before any
+            # media was downloaded.
             transport=RetryTransport(
                 retry=Retry(
-                    total=6,
-                    backoff_factor=1,
+                    total=3,
+                    backoff_factor=0.5,
                     status_forcelist=[429, 500, 502, 503, 504],
                 )
             ),

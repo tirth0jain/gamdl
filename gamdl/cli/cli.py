@@ -109,7 +109,15 @@ async def main(config: CliConfig):
         )
         wrapper_api = None
 
-    if not apple_music_api.active_subscription:
+    if apple_music_api.account_info is None and config.storefront:
+        # Account info could not be fetched (e.g. Apple rate limited us), but
+        # the user explicitly provided a storefront, so proceed rather than
+        # aborting the whole rip on a transient 429.
+        logger.warning(
+            "Account info could not be fetched (Apple rate limit?) — continuing"
+            " with the explicitly provided storefront"
+        )
+    elif not apple_music_api.active_subscription:
         logger.critical(
             "No active Apple Music subscription found, you won't be able to download"
             " anything"
