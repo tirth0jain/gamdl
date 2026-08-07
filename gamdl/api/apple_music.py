@@ -172,7 +172,9 @@ class AppleMusicApi:
                         retry_after = e.response.headers.get("Retry-After")
                         if retry_after:
                             try:
-                                delay = float(retry_after)
+                                # Cap the wait so a long Retry-After can't burn
+                                # the whole rip timeout budget.
+                                delay = min(float(retry_after), 10.0)
                             except ValueError:
                                 delay = retry_backoff_base * (2**attempt)
                         else:
@@ -354,13 +356,16 @@ class AppleMusicApi:
                 "origin": APPLE_MUSIC_HOMEPAGE_URL,
             },
             # Bounded retries: each rip has a tight timeout budget (the addon
-            # SIGKILLs gamdl after ~60s), so the previous 6-retry/63s backoff
-            # chain could burn the entire budget on sustained 429s before any
-            # media was downloaded.
+            # SIGKILLs gamdl after ~60s), so retries must fit inside it.
+            # total_timeout caps cumulative sleep (so a long Retry-After can't
+            # burn the whole budget) while max_backoff_wait caps each wait and
+            # 5 attempts ride out short Apple throttle windows.
             transport=RetryTransport(
                 retry=Retry(
-                    total=3,
+                    total=5,
                     backoff_factor=0.5,
+                    max_backoff_wait=10,
+                    total_timeout=15,
                     status_forcelist=[429, 500, 502, 503, 504],
                 )
             ),
