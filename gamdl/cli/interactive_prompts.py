@@ -1,7 +1,30 @@
+import sys
+
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
 import m3u8
 from ..interface import ArtistMediaType
+from ..utils import GamdlError
+
+
+class GamdlInteractiveError(GamdlError):
+    """Raised when an interactive prompt is required but stdin/stdout are not a
+    terminal (headless / non-interactive run)."""
+
+
+def _ensure_tty() -> None:
+    """Guard every interactive prompt.
+
+    InquirerPy (prompt_toolkit) crashes with an unhandled EOFError when it
+    tries to attach a TTY input reader and there is none (e.g. the addon runs
+    gamdl with piped stdio). Fail with a clear error instead of a traceback.
+    """
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise GamdlInteractiveError(
+            "An interactive prompt is required, but stdin/stdout are not a "
+            "terminal. Run interactively, or provide the required value via "
+            "CLI arguments or configuration."
+        )
 
 
 class InteractivePrompts:
@@ -18,6 +41,7 @@ class InteractivePrompts:
 
     @staticmethod
     async def get_wrapper_credentials() -> tuple[str, str]:
+        _ensure_tty()
         username = await inquirer.text(
             message="Apple ID:",
         ).execute_async()
@@ -28,6 +52,7 @@ class InteractivePrompts:
 
     @staticmethod
     async def get_wrapper_2fa_code() -> str:
+        _ensure_tty()
         return await inquirer.text(
             message="Two-factor authentication code:",
         ).execute_async()
@@ -55,6 +80,7 @@ class InteractivePrompts:
     async def ask_song_codec(
         playlists: list[dict],
     ) -> dict:
+        _ensure_tty()
         choices = [
             Choice(
                 name=InteractivePrompts._get_song_codec_choice_name(playlist),
@@ -72,6 +98,7 @@ class InteractivePrompts:
     async def ask_music_video_video_codec_function(
         playlists: list[m3u8.Playlist],
     ) -> dict:
+        _ensure_tty()
         choices = [
             Choice(
                 name=" | ".join(
@@ -95,6 +122,7 @@ class InteractivePrompts:
     async def ask_music_video_audio_codec_function(
         playlists: list[dict],
     ) -> dict:
+        _ensure_tty()
         choices = [
             Choice(
                 name=playlist["group_id"],
@@ -114,6 +142,7 @@ class InteractivePrompts:
     async def ask_uploaded_video_quality_function(
         available_qualities: dict[str, str],
     ) -> str:
+        _ensure_tty()
         qualities = list(available_qualities.keys())
         choices = [
             Choice(
@@ -137,6 +166,7 @@ class InteractivePrompts:
         if self.artist_auto_select:
             return self.artist_auto_select
 
+        _ensure_tty()
         available_choices = []
         for media_types in media_types:
             available_choices.append(
@@ -183,6 +213,7 @@ class InteractivePrompts:
         if self.artist_auto_select:
             return albums
 
+        _ensure_tty()
         choices = [
             Choice(
                 name=" | ".join(
@@ -213,6 +244,7 @@ class InteractivePrompts:
         if self.artist_auto_select:
             return songs
 
+        _ensure_tty()
         choices = [
             Choice(
                 name=" | ".join(
@@ -242,6 +274,7 @@ class InteractivePrompts:
         if self.artist_auto_select:
             return music_videos
 
+        _ensure_tty()
         choices = [
             Choice(
                 name=" | ".join(
