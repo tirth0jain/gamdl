@@ -23,6 +23,7 @@ const PREFETCH_KEY: &str = "skd://itunes.apple.com/P000000000/s1/e1";
 const WRAPPER_DECRYPT_BATCH_SIZE: usize = 128;
 const DECRYPT_MAGIC: u32 = 0x57563244; // WV2D
 const DECRYPT_VERSION: u16 = 1;
+const DECRYPT_KIND_AUTH: u16 = 4;
 const DECRYPT_KIND_BATCH: u16 = 1;
 const DECRYPT_KIND_OK: u16 = 2;
 const DECRYPT_KIND_ERROR: u16 = 3;
@@ -1016,10 +1017,73 @@ struct WrapperTcpSession {
     next_request_id: u32,
 }
 
+/// Frame writer that works without a &mut Self (used by the AUTH handshake
+/// before the session struct exists).
+fn write_raw_frame(mut stream: &TcpStream, kind: u16, request_id: u32, payload: &[u8]) -> io::Result<()> {
+    stream.write_all(&DECRYPT_MAGIC.to_be_bytes())?;
+    stream.write_all(&DECRYPT_VERSION.to_be_bytes())?;
+    stream.write_all(&kind.to_be_bytes())?;
+    stream.write_all(&request_id.to_be_bytes())?;
+    stream.write_all(&(payload.len() as u32).to_be_bytes())?;
+    stream.write_all(payload)?;
+    stream.flush()
+}
+
+/// Frame reader for the AUTH handshake reply.
+fn read_wrapper_frame(mut stream: &TcpStream) -> io::Result<(u16, u32, Vec<u8>)> {
+    let mut h = [0u8; 16];
+    stream.read_exact(&mut h)?;
+    let magic = u32::from_be_bytes([h[0], h[1], h[2], h[3]]);
+    let version = u16::from_be_bytes([h[4], h[5]]);
+    if magic != DECRYPT_MAGIC || version != DECRYPT_VERSION {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "wrapper-v2: bad decrypt response frame",
+        ));
+    }
+    let kind = u16::from_be_bytes([h[6], h[7]]);
+    let request_id = u32::from_be_bytes([h[8], h[9], h[10], h[11]]);
+    let payload_len = u32::from_be_bytes([h[12], h[13], h[14], h[15]]) as usize;
+    let mut payload = vec![0u8; payload_len];
+    stream.read_exact(&mut payload)?;
+    Ok((kind, request_id, payload))
+}
+
 impl WrapperTcpSession {
     fn connect(host: &str, port: u16) -> io::Result<Self> {
         let stream = TcpStream::connect((host, port))?;
         stream.set_nodelay(true)?;
+        // Shared-secret handshake: when WRAPPER_DECRYPT_TOKEN (or
+        // WRAPPER_TOKEN fallback) is set in the environment, the server
+        // requires an AUTH frame before anything else. Empty/unset env =
+        // legacy unauthenticated server, skip handshake.
+        let token = std::env::var("WRAPPER_DECRYPT_TOKEN")
+            .ok()
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                std::env::var("WRAPPER_TOKEN")
+                    .ok()
+                    .filter(|t| !t.is_empty())
+            });
+        if let Some(token) = token {
+            stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+            write_raw_frame(
+                &stream,
+                DECRYPT_KIND_AUTH,
+                1,
+                format!("AUTH {token}").as_bytes(),
+            )?;
+            let (kind, _, payload) = read_wrapper_frame(&stream)?;
+            if kind != DECRYPT_KIND_OK {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "wrapper-v2: decrypt AUTH rejected: {}",
+                        String::from_utf8_lossy(&payload)
+                    ),
+                ));
+            }
+        }
         stream.set_read_timeout(Some(Duration::from_secs(600)))?;
         stream.set_write_timeout(Some(Duration::from_secs(600)))?;
         Ok(Self {

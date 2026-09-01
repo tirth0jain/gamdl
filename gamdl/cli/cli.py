@@ -1,4 +1,5 @@
 import asyncio
+import os
 from functools import wraps
 from pathlib import Path
 
@@ -91,6 +92,7 @@ async def main(config: CliConfig):
                 decrypt_port=config.wrapper_decrypt_port,
                 get_credentials_func=InteractivePrompts.get_wrapper_credentials,
                 get_2fa_code=InteractivePrompts.get_wrapper_2fa_code,
+                auth_token=os.environ.get("WRAPPER_TOKEN") or None,
             )
             apple_music_api = await AppleMusicApi.create_from_wrapper(
                 wrapper_api=wrapper_api,

@@ -51,9 +51,14 @@ class WrapperApi:
         decrypt_port: int = 10020,
         get_credentials_func: CredentialsFunc | None = None,
         get_2fa_code: TwoFactorCodeFunc | None = None,
+        auth_token: str | None = None,
     ) -> WrapperApi:
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
         client = httpx.AsyncClient(
             timeout=httpx.Timeout(600.0, connect=30.0),
+            headers=headers,
         )
 
         base_url = base_url.rstrip("/")
